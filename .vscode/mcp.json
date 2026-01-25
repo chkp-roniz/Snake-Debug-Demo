@@ -1,0 +1,11 @@
+{
+    "servers": {
+        "debugmcp": {
+            "autoApprove": [],
+            "disabled": false,
+            "timeout": 180,
+            "type": "sse",
+            "url": "http://localhost:3005/sse"
+        }
+    }
+}

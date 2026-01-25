@@ -1,0 +1,2 @@
+# Python dependencies for Snake Debug Demo
+pygame>=2.5.0

@@ -1,0 +1,79 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "🐍 Snake: Manual Mode",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/main.py",
+      "args": ["--manual"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYGAME_HIDE_SUPPORT_PROMPT": "1"
+      }
+    },
+    {
+      "name": "🤖 Snake: Auto-Player",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/main.py",
+      "args": ["--auto"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYGAME_HIDE_SUPPORT_PROMPT": "1"
+      }
+    },
+    {
+      "name": "🔍 Snake: Auto-Player (Debug Output)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/main.py",
+      "args": ["--debug"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYGAME_HIDE_SUPPORT_PROMPT": "1"
+      }
+    },
+    {
+      "name": "🐛 Debug: Step Through Auto-Player",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/main.py",
+      "args": ["--auto"],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "stopOnEntry": false,
+      "env": {
+        "PYGAME_HIDE_SUPPORT_PROMPT": "1"
+      },
+      "purpose": ["debug-in-terminal"]
+    },
+    {
+      "name": "🎯 Debug: Auto-Player Decision Logic",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/main.py",
+      "args": ["--auto"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYGAME_HIDE_SUPPORT_PROMPT": "1"
+      },
+      "preLaunchTask": null
+    },
+    {
+      "name": "🧪 Debug: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYGAME_HIDE_SUPPORT_PROMPT": "1"
+      }
+    }
+  ]
+}
