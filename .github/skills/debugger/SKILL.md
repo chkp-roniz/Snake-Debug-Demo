@@ -1,6 +1,6 @@
 ---
-name: python-debugger
-description: "MANDATORY for ANY Python bug, error, crash, wrong value, or 'not working' report. STOP - do NOT read code to guess. You MUST use this skill's debugger tools (add_breakpoint, start_debugging, get_variables_values) to trace root cause. Trigger words: bug, debug, trace, error, broken, wrong, failing, investigate, not working, unexpected."
+name: debugger
+description: "MANDATORY for ANY Python bug, error, crash, wrong value, or 'not working' report. STOP - do NOT read code to guess. You MUST use this skill's debugger tools (add_breakpoint, run_vscode_command to start debugging, get_variables_values) to trace root cause. Trigger words: bug, debug, trace, error, broken, wrong, failing, investigate, not working, unexpected."
 ---
 
 # Python Debugger
@@ -31,11 +31,12 @@ You MUST use this skill's debugger tools when the user mentions ANY of:
 ### What You MUST Do
 
 ```
-1. IMMEDIATELY call add_breakpoint() - set breakpoint at relevant location
-2. IMMEDIATELY call start_debugging() - start the debug session
-3. Use get_variables_values() and evaluate_expression() - inspect actual runtime state
-4. Use step_over/step_into - trace execution flow
-5. Find ALL root causes - don't stop at the first bug found
+1. STOP previous debug sessions with: mcp_debugmcp_stop_debugging (workspace-scoped, safe)
+2. IMMEDIATELY call add_breakpoint() - set breakpoint at relevant location
+3. Check for .vscode/launch.json and start debug with run_vscode_command() - NO manual intervention
+4. Use get_variables_values() and evaluate_expression() - inspect actual runtime state
+5. Use step_over/step_into - trace execution flow
+6. Find ALL root causes - don't stop at the first bug found
 ```
 
 ### What You MUST NOT Do
@@ -97,17 +98,26 @@ Use this skill when you need to:
 ```json
 // Set breakpoint at a specific line
 {
-  "tool": "add_breakpoint",
+  "tool": "mcp_debugmcp_add_breakpoint",
   "fileFullPath": "/workspaces/project/main.py",
   "lineContent": "result = calculate_total(items)"
 }
 ```
 
-### Example 2: Start Debugging
+### Example 2: Start Debugging Automatically
 ```json
-// Start a debug session
+// Start debug session automatically using VS Code command
+// First, check if .vscode/launch.json exists and read it to find config names
 {
-  "tool": "start_debugging",
+  "tool": "run_vscode_command",
+  "commandId": "workbench.action.debug.start",
+  "name": "Start debug session",
+  "args": ["Config Name from launch.json"]
+}
+
+// Alternative: Start without specific config (may require manual selection)
+{
+  "tool": "mcp_debugmcp_start_debugging",
   "fileFullPath": "/workspaces/project/main.py",
   "workingDirectory": "/workspaces/project"
 }
@@ -117,7 +127,7 @@ Use this skill when you need to:
 ```json
 // Debug a pytest test
 {
-  "tool": "start_debugging",
+  "tool": "mcp_debugmcp_start_debugging",
   "fileFullPath": "/workspaces/project/test_calculator.py",
   "workingDirectory": "/workspaces/project",
   "testName": "test_calculate_total"
@@ -128,57 +138,72 @@ Use this skill when you need to:
 ```json
 // Get local variables at current breakpoint
 {
-  "tool": "get_variables_values",
+  "tool": "mcp_debugmcp_get_variables_values",
   "scope": "local"
 }
 ```
 
 ### Example 5: Evaluate Expression
 ```json
+// CRITICAL: Always check current frame first with get_variables_values!
+// Variables are only accessible in their defining scope.
+
 // Check length of a list
-{ "tool": "evaluate_expression", "expression": "len(items)" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "len(items)" }
 
 // Inspect object attribute
-{ "tool": "evaluate_expression", "expression": "user.name" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "user.name" }
 
 // Check dictionary keys
-{ "tool": "evaluate_expression", "expression": "list(data.keys())" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "list(data.keys())" }
 
 // Get object type
-{ "tool": "evaluate_expression", "expression": "type(variable).__name__" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "type(variable).__name__" }
+```
+
+**⚠️ Common Mistake:** Trying to evaluate variables from parent frames
+```json
+// ❌ WRONG: Breakpoint is in nested function, trying to access parent variable
+// Debug output shows: Frame: _calc_runtime_offset
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "food_check_pos" }
+// Result: NameError: name 'food_check_pos' is not defined
+
+// ✅ RIGHT: First check what's available in current scope
+{ "tool": "mcp_debugmcp_get_variables_values", "scope": "local" }
+// Then evaluate only variables that exist in this frame
 ```
 
 ### Example 6: Navigate Code
 ```json
 // Step to next line (skip function internals)
-{ "tool": "step_over" }
+{ "tool": "mcp_debugmcp_step_over" }
 
 // Enter into a function call
-{ "tool": "step_into" }
+{ "tool": "mcp_debugmcp_step_into" }
 
 // Exit current function
-{ "tool": "step_out" }
+{ "tool": "mcp_debugmcp_step_out" }
 
 // Continue to next breakpoint
-{ "tool": "continue_execution" }
+{ "tool": "mcp_debugmcp_continue_execution" }
 ```
 
 ### Example 7: Cleanup
 ```json
 // Remove all breakpoints
-{ "tool": "clear_all_breakpoints" }
+{ "tool": "mcp_debugmcp_clear_all_breakpoints" }
 
 // Stop debugging session
-{ "tool": "stop_debugging" }
+{ "tool": "mcp_debugmcp_stop_debugging" }
 ```
 
 ## Critical: Debug Session Management
 
 ### Auto-Select Debug Method
 **NEVER prompt the user to choose a debugging method.** Automatically determine the appropriate approach:
-- For standalone Python scripts → use `start_debugging` with the script file
-- For pytest tests → use `start_debugging` with `testName` parameter
-- For unittest tests → use `start_debugging` with `testName` parameter
+- For standalone Python scripts → use `mcp_debugmcp_start_debugging` with the script file
+- For pytest tests → use `mcp_debugmcp_start_debugging` with `testName` parameter
+- For unittest tests → use `mcp_debugmcp_start_debugging` with `testName` parameter
 - For modules → debug the entry point file directly
 
 ### Monitor Debug Terminal for User Input
@@ -269,6 +294,8 @@ For bugs that manifest after repeated operations:
 
 3. **Wait for breakpoint hit before inspecting** - `get_variables_values` and `evaluate_expression` only work when execution is paused at a breakpoint
 
+4. **Check frame before evaluating expressions** - Always examine the "Frame:" output from debug state and use `get_variables_values` first to see what's available. Variables are only accessible in their defining scope - if paused in a nested function call, parent frame variables will cause NameError
+
 4. **Trace to root cause, not symptoms** - If a variable is `None`, don't stop there—find WHY it's `None`
 
 5. **Use strategic breakpoint placement**:
@@ -277,7 +304,7 @@ For bugs that manifest after repeated operations:
    - Before loops → inspect iterables
    - Before return → verify return value
 
-6. **Clean up after debugging** - Call `clear_all_breakpoints` and `stop_debugging` when done
+6. **Clean up after debugging** - Call `mcp_debugmcp_clear_all_breakpoints` and `mcp_debugmcp_stop_debugging` when done
 
 7. **Restart to re-verify** - After understanding the issue, use `restart_debugging` to confirm your analysis
 
@@ -293,21 +320,77 @@ For bugs that manifest after repeated operations:
 
 ## Autonomous Debugging
 
-### Never Ask User to Choose Debug Configuration
-When `start_debugging` launches, VS Code may show multiple debug configurations. **Handle this autonomously**:
+### Start Debug Sessions Automatically (No Manual Clicks!)
 
-1. **Before starting**: Check if `.vscode/launch.json` exists and read it to understand available configurations
-2. **Prefer the simplest configuration**: Choose configurations that debug the specific file directly
-3. **For scripts**: Use a basic Python file debug configuration
-4. **For tests**: Use pytest/unittest specific configurations with `testName` parameter
-5. **If session fails or wrong config selected**: Stop debugging and restart with explicit parameters
+**CRITICAL: Use `run_vscode_command` to start debugging automatically without user intervention.**
+
+**Required workflow:**
+
+1. **Kill all previous debug sessions**: Use terminal to kill any existing Python debug processes to avoid conflicts
+2. **Check for `.vscode/launch.json`**: Read it to find available debug configuration names
+3. **Select appropriate config**: Pick the right config based on context (auto-player, test, manual mode, etc.)
+4. **Start automatically**: Use `run_vscode_command` with `workbench.action.debug.start` and config name
+
+**Example:**
+```json
+// 1. Stop any existing debug sessions (workspace-scoped, prevents conflicts)
+{
+  "tool": "mcp_debugmcp_stop_debugging"
+}
+
+// 2. Set breakpoints FIRST (before starting debug)
+{ "tool": "mcp_debugmcp_add_breakpoint", "fileFullPath": "/workspace/file.py", "lineContent": "suspicious_line" }
+
+// 3. Read launch.json to get config names
+{ "tool": "read_file", "filePath": "/workspace/.vscode/launch.json" }
+
+// 4. Start debug with specific config name
+{
+  "tool": "run_vscode_command",
+  "commandId": "workbench.action.debug.start",
+  "name": "Start Auto-Player debug",
+  "args": ["🤖 Snake: Auto-Player"]  // Exact name from launch.json
+}
+
+// 5. DO NOT call continue_execution immediately after starting!
+// The debug session starts asynchronously and will automatically run to first breakpoint.
+// Call continue_execution ONLY when you see debug output showing execution is paused.
+
+// 6. Once paused at breakpoint, inspect variables
+{ "tool": "mcp_debugmcp_get_variables_values", "scope": "local" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "variable_name" }
+```
+
+**CRITICAL: Never sleep or wait after starting debug!**
+- The debug session runs asynchronously
+- It will naturally pause at your breakpoint when code executes
+- Calling `continue_execution` immediately will FAIL (session not ready)
+- Instead: Set breakpoints first, start debug, then wait for natural pause
+- For GUI programs (pygame, tkinter): The window must remain active for debug to work
+
+**Why this approach?**
+- ✅ No manual configuration selection needed
+- ✅ Automatic execution without user clicks
+- ✅ Selects specific debug config programmatically
+- ❌ Avoid `mcp_debugmcp_start_debugging` - requires manual selection
+
+### Fallback: When launch.json Doesn't Exist
+If `.vscode/launch.json` doesn't exist, you can use `mcp_debugmcp_start_debugging`:
+```json
+{ 
+  "tool": "mcp_debugmcp_start_debugging",
+  "fileFullPath": "/path/file.py",
+  "workingDirectory": "/path"
+}
+```
+**Warning**: This may prompt the user to select a configuration manually.
 
 ### Auto-Recovery from Wrong Debug Configuration
 If the debug session doesn't hit expected breakpoints:
-1. Call `stop_debugging` immediately
-2. Verify breakpoints are set with `list_breakpoints`
-3. Re-examine the entry point file
-4. Restart with explicit `fileFullPath` pointing to the actual entry point
+1. Call `mcp_debugmcp_stop_debugging` immediately
+2. Verify breakpoints are set with `mcp_debugmcp_list_breakpoints`
+3. Re-examine the entry point file and `.vscode/launch.json`
+4. Restart with correct configuration name using `run_vscode_command`
 
 ### Handling Interactive Programs
 If the program has multiple modes (e.g., manual vs auto mode):
@@ -316,51 +399,86 @@ If the program has multiple modes (e.g., manual vs auto mode):
 3. Determine the code path that exercises the bug
 4. Set breakpoints along that specific path
 
+### Troubleshooting Debug Session Issues
+
+**Problem**: "Debug session is not ready" errors
+
+**Solutions**:
+1. ✅ Set breakpoints BEFORE starting debug (not after)
+2. ✅ Let program run naturally to breakpoint (don't force with continue_execution)
+3. ✅ For GUI programs: Ensure window stays open (user might need to interact)
+4. ❌ Don't call `continue_execution` immediately after `run_vscode_command`
+5. ❌ Don't use sleep/wait - debug tools will indicate when paused
+
+**Problem**: Breakpoint never hits
+
+**Solutions**:
+1. Verify breakpoint is on executable line (not on `def`, `class`, blank lines)
+2. Check that code path actually executes (add print before breakpoint to test)
+3. For conditional code: Set breakpoint INSIDE the condition block, not before
+4. Use `mcp_debugmcp_list_breakpoints` to confirm breakpoints are set correctly
+
+**Problem**: Debug session terminates immediately
+
+**Solutions**:
+1. Program might be crashing before reaching breakpoint
+2. For GUI apps: Program might exit if no window interaction
+3. Check debug console output for errors
+4. Try running program without debugger first to verify it works
+
 ## Common Patterns
 
 ### Pattern: Debug AttributeError
 ```json
 // 'NoneType' has no attribute 'x'
-{ "tool": "add_breakpoint", "fileFullPath": "/path/file.py", "lineContent": "result = obj.x" }
-{ "tool": "start_debugging", "fileFullPath": "/path/file.py", "workingDirectory": "/path" }
+{ "tool": "mcp_debugmcp_add_breakpoint", "fileFullPath": "/path/file.py", "lineContent": "result = obj.x" }
+// Read launch.json to get config name, then:
+{ "tool": "run_vscode_command", "commandId": "workbench.action.debug.start", "name": "Start debug", "args": ["Python: Current File"] }
 // When paused:
-{ "tool": "evaluate_expression", "expression": "obj" }
-{ "tool": "evaluate_expression", "expression": "type(obj)" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "obj" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "type(obj)" }
 ```
 
 ### Pattern: Debug KeyError
 ```json
 // KeyError: 'expected_key'
-{ "tool": "evaluate_expression", "expression": "list(data.keys())" }
-{ "tool": "evaluate_expression", "expression": "'expected_key' in data" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "list(data.keys())" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "'expected_key' in data" }
 ```
 
 ### Pattern: Debug IndexError
 ```json
 // list index out of range
-{ "tool": "evaluate_expression", "expression": "len(items)" }
-{ "tool": "evaluate_expression", "expression": "items" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "len(items)" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "items" }
 ```
 
 ### Pattern: Inspect Complex Objects
 ```json
-{ "tool": "evaluate_expression", "expression": "vars(obj)" }
-{ "tool": "evaluate_expression", "expression": "obj.__dict__" }
-{ "tool": "evaluate_expression", "expression": "[attr for attr in dir(obj) if not attr.startswith('_')]" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "vars(obj)" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "obj.__dict__" }
+{ "tool": "mcp_debugmcp_evaluate_expression", "expression": "[attr for attr in dir(obj) if not attr.startswith('_')]" }
 ```
 
 ### Pattern: Full Debug Workflow
 ```
-1. add_breakpoint      → Set breakpoint at suspicious location
-2. start_debugging     → Begin debug session  
-3. get_variables_values → Inspect current state
-4. evaluate_expression → Check specific values
-5. step_over/step_into → Navigate through code
-6. Repeat 3-5          → Until root cause found
-7. Run COMPLETION CHECKLIST before concluding
-8. clear_all_breakpoints → Clean up
-9. stop_debugging      → End session
+1. mcp_debugmcp_stop_debugging → Stop previous debug sessions (workspace-scoped)
+2. mcp_debugmcp_add_breakpoint → Set breakpoint at suspicious location
+3. read .vscode/launch.json → Find available debug configurations
+4. run_vscode_command       → Start debug automatically (runs to breakpoint naturally)
+5. [WAIT] Debug pauses at breakpoint automatically - NO continue_execution needed!
+6. mcp_debugmcp_get_variables_values → Inspect current state
+7. mcp_debugmcp_evaluate_expression → Check specific values (run multiple in parallel)
+8. mcp_debugmcp_step_over/step_into → Navigate through code
+9. Repeat 6-8               → Until root cause found
+10. Run COMPLETION CHECKLIST → Before concluding
+11. mcp_debugmcp_clear_all_breakpoints → Clean up
+12. mcp_debugmcp_stop_debugging → End session
 ```
+
+**Common mistake**: Calling `continue_execution` immediately after starting debug
+- ❌ WRONG: start debug → sleep → continue_execution (will fail!)
+- ✅ RIGHT: start debug → [execution naturally pauses at breakpoint] → inspect variables
 
 ---
 
@@ -487,19 +605,19 @@ When bugs manifest only after repeated operations:
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `add_breakpoint` | `fileFullPath`, `lineContent` | Set breakpoint using content matching |
-| `remove_breakpoint` | `fileFullPath`, `line` | Remove breakpoint by line number (1-based) |
-| `list_breakpoints` | — | List all active breakpoints |
-| `clear_all_breakpoints` | — | Remove all breakpoints |
-| `start_debugging` | `fileFullPath`, `workingDirectory`, `testName`? | Start debug session |
-| `stop_debugging` | — | Stop debug session |
-| `restart_debugging` | — | Restart debug session |
-| `step_over` | — | Execute line, skip into functions |
-| `step_into` | — | Step into function calls |
-| `step_out` | — | Step out of current function |
-| `continue_execution` | — | Run to next breakpoint |
-| `get_variables_values` | `scope`? | Get variables (`local`/`global`/`all`) |
-| `evaluate_expression` | `expression` | Evaluate Python expression |
+| `mcp_debugmcp_add_breakpoint` | `fileFullPath`, `lineContent` | Set breakpoint using content matching |
+| `mcp_debugmcp_remove_breakpoint` | `fileFullPath`, `line` | Remove breakpoint by line number (1-based) |
+| `mcp_debugmcp_list_breakpoints` | — | List all active breakpoints |
+| `mcp_debugmcp_clear_all_breakpoints` | — | Remove all breakpoints |
+| `mcp_debugmcp_start_debugging` | `fileFullPath`, `workingDirectory`, `testName`? | Start debug session |
+| `mcp_debugmcp_stop_debugging` | — | Stop debug session |
+| `mcp_debugmcp_restart_debugging` | — | Restart debug session |
+| `mcp_debugmcp_step_over` | — | Execute line, skip into functions |
+| `mcp_debugmcp_step_into` | — | Step into function calls |
+| `mcp_debugmcp_step_out` | — | Step out of current function |
+| `mcp_debugmcp_continue_execution` | — | Run to next breakpoint |
+| `mcp_debugmcp_get_variables_values` | `scope`? | Get variables (`local`/`global`/`all`) |
+| `mcp_debugmcp_evaluate_expression` | `expression` | Evaluate Python expression |
 
 ## Limitations
 
