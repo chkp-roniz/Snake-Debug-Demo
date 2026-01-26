@@ -10,12 +10,158 @@ import socketserver
 import json
 import threading
 import time
+import random
 from auto_player import AutoPlayer, Direction
+import config
 from game_logger import (
     game_logger, state_logger, ai_logger, collision_logger,
     log_startup_info, log_ai_decision, log_bfs_path, log_snake_move,
     log_game_state, log_collision_check
 )
+
+# Server-side game state management
+class ServerGameState:
+    def __init__(self):
+        self.grid_width = 20
+        self.grid_height = 20
+        self.auto_player = AutoPlayer(debug_mode=False)
+        self.reset()
+    
+    def reset(self):
+        """Reset game to initial state."""
+        self.snake = [{"x": self.grid_width // 2, "y": self.grid_height // 2}]
+        self.food = {"x": 0, "y": 0}
+        self.direction = {"x": 1, "y": 0}
+        self.score = 0
+        self.moves = 0
+        self.game_over = False
+        self.game_over_reason = ""
+        self._spawn_food()
+        state_logger.info("Server game state reset")
+        state_logger.info(f"Initial head: ({self.snake[0]['x']}, {self.snake[0]['y']})")
+        state_logger.info(f"Initial food: ({self.food['x']}, {self.food['y']})")
+    
+    def _spawn_food(self):
+        """Spawn food at random position not occupied by snake."""
+        attempts = 0
+        while attempts < 100:
+            x = random.randint(0, self.grid_width - 1)
+            y = random.randint(0, self.grid_height - 1)
+            if not any(s["x"] == x and s["y"] == y for s in self.snake):
+                self.food = {"x": x, "y": y}
+                state_logger.debug(f"Food spawned at ({x}, {y})")
+                return
+            attempts += 1
+        self.food = {"x": random.randint(0, self.grid_width - 1), 
+                     "y": random.randint(0, self.grid_height - 1)}
+    
+    def get_auto_direction(self):
+        """Get next direction from auto-player AI."""
+        # Convert to format expected by auto_player
+        game_state = {
+            "snake_body": [(s["x"], s["y"]) for s in self.snake],
+            "head": (self.snake[0]["x"], self.snake[0]["y"]),
+            "food_pos": (self.food["x"], self.food["y"]),
+            "direction": Direction((self.direction["x"], self.direction["y"])),
+            "grid_width": self.grid_width,
+            "grid_height": self.grid_height,
+            "score": self.score
+        }
+        
+        ai_direction = self.auto_player.get_next_direction(game_state)
+        dx, dy = ai_direction.value
+        
+        ai_logger.info(f"=== AI Decision #{self.moves + 1} ===")
+        ai_logger.info(f"Head: ({self.snake[0]['x']}, {self.snake[0]['y']}), Food: ({self.food['x']}, {self.food['y']})")
+        ai_logger.info(f"Snake length: {len(self.snake)}")
+        ai_logger.debug(f"Decision: {ai_direction.name}")
+        
+        return {"x": dx, "y": dy}
+    
+    def update(self):
+        """Update game state for one step."""
+        if self.game_over:
+            return self.get_state()
+        
+        old_head = self.snake[0].copy()
+        
+        # Get direction from auto-player
+        self.direction = self.get_auto_direction()
+        
+        # Calculate new head position
+        new_head = {
+            "x": self.snake[0]["x"] + self.direction["x"],
+            "y": self.snake[0]["y"] + self.direction["y"]
+        }
+        
+        self.moves += 1
+        
+        state_logger.info(f"Move #{self.moves}: ({old_head['x']}, {old_head['y']}) -> ({new_head['x']}, {new_head['y']})")
+        
+        # Check wall collision
+        if (new_head["x"] < 0 or new_head["x"] >= self.grid_width or
+            new_head["y"] < 0 or new_head["y"] >= self.grid_height):
+            self.game_over = True
+            self.game_over_reason = "wall"
+            state_logger.info("="*50)
+            state_logger.info("GAME OVER!")
+            state_logger.info("="*50)
+            state_logger.info(f"Reason: wall collision at ({new_head['x']}, {new_head['y']})")
+            state_logger.info(f"Final score: {self.score}")
+            state_logger.info(f"Total moves: {self.moves}")
+            state_logger.info(f"Final length: {len(self.snake)}")
+            return self.get_state()
+        
+        # Check self collision
+        if any(s["x"] == new_head["x"] and s["y"] == new_head["y"] for s in self.snake):
+            self.game_over = True
+            self.game_over_reason = "self"
+            state_logger.info("="*50)
+            state_logger.info("GAME OVER!")
+            state_logger.info("="*50)
+            state_logger.info(f"Reason: self collision at ({new_head['x']}, {new_head['y']})")
+            state_logger.info(f"Final score: {self.score}")
+            state_logger.info(f"Total moves: {self.moves}")
+            state_logger.info(f"Final length: {len(self.snake)}")
+            return self.get_state()
+        
+        # Move snake
+        self.snake.insert(0, new_head)
+        
+        # Check food collision using config module functions
+        food_pos_tuple = (self.food["x"], self.food["y"])
+        new_head_tuple = (new_head["x"], new_head["y"])
+        food_check_pos_tuple = config.get_food_collision_position(food_pos_tuple)
+        ate_food = config.check_positions_equal(new_head_tuple, food_check_pos_tuple)
+        
+        collision_logger.debug(f"Collision check: head=({new_head['x']}, {new_head['y']}) vs food=({self.food['x']}, {self.food['y']})")
+        collision_logger.debug(f"  Food check pos: ({food_check_pos_tuple[0]}, {food_check_pos_tuple[1]}) -> {'HIT' if ate_food else 'MISS'}")
+        
+        if ate_food:
+            self.score += 1
+            state_logger.info(f"*** FOOD EATEN at ({self.food['x']}, {self.food['y']})! Score: {self.score}, Length: {len(self.snake)} ***")
+            config._advance_runtime_optimization()
+            self._spawn_food()
+            state_logger.debug(f"New food spawned at: ({self.food['x']}, {self.food['y']})")
+        else:
+            self.snake.pop()
+        
+        return self.get_state()
+    
+    def get_state(self):
+        """Get current game state as dictionary."""
+        return {
+            "snake": self.snake,
+            "food": self.food,
+            "direction": self.direction,
+            "score": self.score,
+            "moves": self.moves,
+            "gameOver": self.game_over,
+            "gameOverReason": self.game_over_reason
+        }
+
+# Global server game state
+server_game_state = ServerGameState()
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -102,7 +248,8 @@ HTML_TEMPLATE = '''
         const GRID_WIDTH = canvas.width / GRID_SIZE;
         const GRID_HEIGHT = canvas.height / GRID_SIZE;
         
-        let snake = [{x: Math.floor(GRID_WIDTH/2), y: Math.floor(GRID_HEIGHT/2)}];
+        // Client-side state (synced from server)
+        let snake = [{x: 10, y: 10}];
         let food = {x: 0, y: 0};
         let direction = {x: 1, y: 0};
         let score = 0;
@@ -111,161 +258,46 @@ HTML_TEMPLATE = '''
         let paused = false;
         let speed = 100;
         
-        // Runtime coordinate optimization state
-        let coordOptLevel = 0;
-        
-        function spawnFood() {
-            do {
-                food.x = Math.floor(Math.random() * GRID_WIDTH);
-                food.y = Math.floor(Math.random() * GRID_HEIGHT);
-            } while (snake.some(s => s.x === food.x && s.y === food.y));
+        async function fetchGameState() {
+            try {
+                const response = await fetch('/api/state');
+                const state = await response.json();
+                updateFromState(state);
+            } catch (error) {
+                console.error('Error fetching game state:', error);
+            }
         }
         
-        // BFS pathfinding (same logic as Python auto_player)
-        function findPath(start, goal, obstacles) {
-            const queue = [[start]];
-            const visited = new Set();
-            visited.add(`${start.x},${start.y}`);
-            
-            const dirs = [{x:0,y:-1},{x:0,y:1},{x:-1,y:0},{x:1,y:0}];
-            
-            while (queue.length > 0) {
-                const path = queue.shift();
-                const current = path[path.length - 1];
-                
-                if (current.x === goal.x && current.y === goal.y) {
-                    return path;
-                }
-                
-                for (const dir of dirs) {
-                    const next = {x: current.x + dir.x, y: current.y + dir.y};
-                    const key = `${next.x},${next.y}`;
-                    
-                    if (next.x < 0 || next.x >= GRID_WIDTH || 
-                        next.y < 0 || next.y >= GRID_HEIGHT) continue;
-                    if (visited.has(key)) continue;
-                    if (obstacles.has(key)) continue;
-                    
-                    visited.add(key);
-                    queue.push([...path, next]);
-                }
-            }
-            return null;
-        }
-        
-        function getAutoDirection() {
-            // Build obstacles set (snake body except tail)
-            const obstacles = new Set();
-            for (let i = 0; i < snake.length - 1; i++) {
-                obstacles.add(`${snake[i].x},${snake[i].y}`);
-            }
-            
-            const head = snake[0];
-            const path = findPath(head, food, obstacles);
-            
-            if (path && path.length > 1) {
-                const next = path[1];
-                const newDir = {x: next.x - head.x, y: next.y - head.y};
-                
-                // Prevent 180 turn
-                if (direction.x + newDir.x !== 0 || direction.y + newDir.y !== 0) {
-                    return newDir;
-                }
-            }
-            
-            // Fallback: find any safe direction
-            const dirs = [{x:0,y:-1},{x:0,y:1},{x:-1,y:0},{x:1,y:0}];
-            for (const dir of dirs) {
-                if (direction.x + dir.x === 0 && direction.y + dir.y === 0) continue;
-                const next = {x: head.x + dir.x, y: head.y + dir.y};
-                if (next.x < 0 || next.x >= GRID_WIDTH || 
-                    next.y < 0 || next.y >= GRID_HEIGHT) continue;
-                if (obstacles.has(`${next.x},${next.y}`)) continue;
-                return dir;
-            }
-            
-            return direction;
-        }
-        
-        function update() {
-            if (gameOver || paused) return;
-            
-            const oldHead = snake[0];
-            
-            // Get auto-player direction
-            direction = getAutoDirection();
-            
-            // Log AI decision
-            serverLog('ai_decision', {
-                head: oldHead,
-                food: food,
-                direction: direction,
-                decisionNum: moves + 1,
-                snakeLength: snake.length
-            });
-            
-            const head = {x: snake[0].x + direction.x, y: snake[0].y + direction.y};
-            
-            // Log snake move
-            serverLog('snake_move', {
-                oldHead: oldHead,
-                newHead: head,
-                direction: direction,
-                moveNum: moves + 1
-            });
-            
-            // Check collisions
-            if (head.x < 0 || head.x >= GRID_WIDTH || 
-                head.y < 0 || head.y >= GRID_HEIGHT ||
-                snake.some(s => s.x === head.x && s.y === head.y)) {
-                gameOver = true;
-                serverLog('game_over', {
-                    head: head,
-                    score: score,
-                    moves: moves,
-                    snakeLength: snake.length,
-                    reason: head.x < 0 || head.x >= GRID_WIDTH || head.y < 0 || head.y >= GRID_HEIGHT ? 'wall' : 'self'
-                });
-                document.getElementById('status').textContent = 'GAME OVER! Click Restart to play again.';
-                return;
-            }
-            
-            snake.unshift(head);
-            moves++;
-            
-            // Check food collision with coordinate optimization
-            const optX = Math.floor(coordOptLevel / 2);
-            const optY = -(coordOptLevel - optX);
-            const foodCheckPos = {x: food.x + optX, y: food.y + optY};
-            const ateFood = head.x === foodCheckPos.x && head.y === foodCheckPos.y;
-            
-            // Log collision check
-            serverLog('collision_check', {
-                head: head,
-                food: food,
-                foodCheckPos: foodCheckPos,
-                result: ateFood,
-                coordOptLevel: coordOptLevel
-            });
-            
-            if (ateFood) {
-                score++;
-                serverLog('food_eaten', {
-                    head: head,
-                    food: food,
-                    newScore: score,
-                    newLength: snake.length
-                });
-                if (coordOptLevel < 4) coordOptLevel++;
-                spawnFood();
-                serverLog('food_spawned', {food: food});
-            } else {
-                snake.pop();
-            }
+        function updateFromState(state) {
+            snake = state.snake;
+            food = state.food;
+            direction = state.direction;
+            score = state.score;
+            moves = state.moves;
+            gameOver = state.gameOver;
             
             document.getElementById('score').textContent = score;
             document.getElementById('length').textContent = snake.length;
             document.getElementById('moves').textContent = moves;
+            
+            if (gameOver) {
+                paused = true;
+                document.getElementById('status').textContent = 
+                    `GAME OVER! Hit ${state.gameOverReason}. Click Restart.`;
+            }
+        }
+        
+        async function update() {
+            if (gameOver || paused) return;
+            
+            // Server handles all game logic including AI
+            try {
+                const response = await fetch('/api/update', {method: 'POST'});
+                const state = await response.json();
+                updateFromState(state);
+            } catch (error) {
+                console.error('Error updating game:', error);
+            }
         }
         
         function draw() {
@@ -314,22 +346,17 @@ HTML_TEMPLATE = '''
             document.getElementById('status').textContent = paused ? 'Paused' : '';
         }
         
-        function restart() {
-            snake = [{x: Math.floor(GRID_WIDTH/2), y: Math.floor(GRID_HEIGHT/2)}];
-            direction = {x: 1, y: 0};
-            score = 0;
-            moves = 0;
-            gameOver = false;
-            paused = false;
-            coordOptLevel = 0;
-            spawnFood();
-            document.getElementById('status').textContent = '';
-            serverLog('game_restart', {
-                head: snake[0],
-                food: food,
-                gridWidth: GRID_WIDTH,
-                gridHeight: GRID_HEIGHT
-            });
+        async function restart() {
+            try {
+                const response = await fetch('/api/restart', {method: 'POST'});
+                const state = await response.json();
+                updateFromState(state);
+                paused = false;
+                gameOver = false;
+                document.getElementById('status').textContent = '';
+            } catch (error) {
+                console.error('Error restarting game:', error);
+            }
         }
         
         function speedUp() {
@@ -359,21 +386,25 @@ HTML_TEMPLATE = '''
             }).catch(() => {}); // Ignore errors
         }
         
-        spawnFood();
-        serverLog('game_start', {
-            head: snake[0],
-            food: food,
-            gridWidth: GRID_WIDTH,
-            gridHeight: GRID_HEIGHT
-        });
-        
         function gameLoop() {
             update();
             draw();
             setTimeout(gameLoop, speed);
         }
         
-        gameLoop();
+        // Initialize game
+        async function init() {
+            await fetchGameState();
+            serverLog('game_start', {
+                head: snake[0],
+                food: food,
+                gridWidth: GRID_WIDTH,
+                gridHeight: GRID_HEIGHT
+            });
+            gameLoop();
+        }
+        
+        init();
     </script>
 </body>
 </html>
@@ -382,6 +413,22 @@ HTML_TEMPLATE = '''
 class GameHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         game_logger.debug(f"GET request received: {self.path}")
+        
+        # API endpoint for getting game state
+        if self.path == '/api/state':
+            try:
+                state = server_game_state.get_state()
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps(state).encode())
+                return
+            except Exception as e:
+                game_logger.error(f"Error getting game state: {e}")
+                self.send_response(500)
+                self.end_headers()
+                return
         
         if self.path.startswith('/shutdown'):
             game_logger.info("Shutdown request received")
@@ -409,8 +456,41 @@ class GameHandler(http.server.SimpleHTTPRequestHandler):
         game_logger.info(f"Game page served to {self.client_address[0]}")
     
     def do_POST(self):
-        """Handle POST requests for game event logging."""
-        if self.path == '/log':
+        """Handle POST requests for game API and event logging."""
+        if self.path == '/api/update':
+            # Update game state (server-side AI makes decision)
+            try:
+                state = server_game_state.update()
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps(state).encode())
+                return
+            except Exception as e:
+                game_logger.error(f"Error updating game: {e}")
+                self.send_response(500)
+                self.end_headers()
+                return
+        
+        elif self.path == '/api/restart':
+            # Restart game
+            try:
+                server_game_state.reset()
+                state = server_game_state.get_state()
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps(state).encode())
+                return
+            except Exception as e:
+                game_logger.error(f"Error restarting game: {e}")
+                self.send_response(500)
+                self.end_headers()
+                return
+        
+        elif self.path == '/log':
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             
