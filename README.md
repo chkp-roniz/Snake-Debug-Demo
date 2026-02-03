@@ -7,6 +7,12 @@ A Snake game with an **intentional bug** that's perfect for learning VS Code deb
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
 ![Pygame](https://img.shields.io/badge/Pygame-2.5+-green.svg)
 
+[![Author](https://img.shields.io/badge/Author-Ron%20Izraeli-blue.svg)](https://www.linkedin.com/in/ron-izraeli/)
+
+### 📺 Demo Video
+
+[![Watch the Demo](https://img.youtube.com/vi/BoOaJ2cK6YY/maxresdefault.jpg)](https://www.youtube.com/watch?v=BoOaJ2cK6YY)
+
 ---
 
 ## 🎯 What You'll Learn
@@ -35,11 +41,12 @@ pip install -r requirements.txt
 ```
 
 **Required VS Code Extensions:**
+
 - GitHub Copilot
-- GitHub Copilot Chat  
+- GitHub Copilot Chat
 - Python (ms-python.python)
 - Python Debugger (ms-python.debugpy)
-- Debug MCP Extension (ozzafar.debugmcpextension)
+- [Debug MCP Extension](https://github.com/microsoft/DebugMCP)
 
 ---
 
@@ -47,10 +54,10 @@ pip install -r requirements.txt
 
 Press `F5` and select a configuration:
 
-| Configuration | Description |
-|---------------|-------------|
-| 🐍 Snake: Manual Mode | Play with arrow keys |
-| 🤖 Snake: Auto-Player | Watch the AI play |
+| Configuration                      | Description            |
+| ---------------------------------- | ---------------------- |
+| 🐍 Snake: Manual Mode              | Play with arrow keys   |
+| 🤖 Snake: Auto-Player              | Watch the AI play      |
 | 🐛 Debug: Step Through Auto-Player | **Best for debugging** |
 
 ### Command Line
@@ -73,7 +80,8 @@ python src/main.py --auto     # Watch AI play
 if (new_head[0], new_head[1]) == (self.food_pos[1], self.food_pos[0]):
 ```
 
-**Your challenge:** 
+**Your challenge:**
+
 1. Set a breakpoint in `snake.py` at the food collision check
 2. Watch `new_head` and `self.food_pos` in the debugger
 3. Notice the X/Y swap in the comparison!
@@ -102,10 +110,10 @@ debug-demo/
 
 ## 🎹 Controls
 
-| Mode | Controls |
-|------|----------|
-| Manual | Arrow keys to move, R to restart, ESC to quit |
-| Auto | D to toggle debug info, R to restart, ESC to quit |
+| Mode   | Controls                                          |
+| ------ | ------------------------------------------------- |
+| Manual | Arrow keys to move, R to restart, ESC to quit     |
+| Auto   | D to toggle debug info, R to restart, ESC to quit |
 
 ---
 
